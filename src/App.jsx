@@ -1,63 +1,17 @@
+import { io } from "socket.io-client";
 import { useEffect, useRef, useState } from "react";
-import io from "socket.io-client";
 
-const socket = io("https://video-meet-backend-o7dy.onrender.com/");
+const socket = io("https://video-meet-backend-o7dy.onrender.com", {
+  transports: ["websocket"],
+});
 
 function App() {
-  const videoRef = useRef(null);
+  const [subtitle, setSubtitle] = useState("Waiting for speech...");
   const recognitionRef = useRef(null);
 
-  const [subtitle, setSubtitle] = useState("Waiting for speech...");
-  const [listening, setListening] = useState(false);
-
-  const roomId = "demo-room";
-
-  // 🎥 CAMERA
   useEffect(() => {
-    navigator.mediaDevices
-      .getUserMedia({ video: true, audio: true })
-      .then((stream) => {
-        videoRef.current.srcObject = stream;
-      });
+    socket.emit("join-room", "demo-room");
 
-    socket.emit("join-room", roomId);
-  }, []);
-
-  // 🎤 START SPEECH (USER CLICK REQUIRED)
-  const startSpeech = () => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      alert("Speech Recognition not supported");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
-    recognition.onresult = (event) => {
-      let transcript = "";
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript;
-      }
-
-      socket.emit("speech-text", {
-        roomId,
-        text: transcript,
-      });
-    };
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setListening(true);
-  };
-
-  // 📩 RECEIVE SUBTITLES
-  useEffect(() => {
     socket.on("subtitle", (text) => {
       setSubtitle(text);
     });
@@ -65,41 +19,54 @@ function App() {
     return () => socket.off("subtitle");
   }, []);
 
+  const startSubtitles = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert("Speech Recognition not supported on this device");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-IN";
+    recognition.continuous = true;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event) => {
+      const text =
+        event.results[event.results.length - 1][0].transcript;
+
+      console.log("🎤 Recognized:", text);
+
+      socket.emit("audio-chunk", {
+        roomId: "demo-room",
+        text,
+      });
+    };
+
+    recognition.onerror = (e) => {
+      console.error("Speech error:", e);
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+  };
+
   return (
-    <div style={{ textAlign: "center" }}>
-      <h2>Zoom-like Video Call</h2>
+    <div>
+      <h1>Zoom-like Video Call</h1>
 
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        style={{ width: "400px", borderRadius: "10px" }}
-      />
+      <button onClick={startSubtitles}>
+        🎤 Start Live Subtitles
+      </button>
 
-      <br /><br />
-
-      {!listening && (
-        <button
-          onClick={startSpeech}
-          style={{
-            padding: "10px 20px",
-            fontSize: "16px",
-            cursor: "pointer",
-          }}
-        >
-          🎤 Start Live Subtitles
-        </button>
-      )}
-
-      <div
-        style={{
-          background: "black",
-          color: "lime",
-          padding: "15px",
-          marginTop: "15px",
-          fontSize: "18px",
-        }}
-      >
+      <div style={{
+        background: "black",
+        color: "lime",
+        padding: "10px",
+        marginTop: "20px"
+      }}>
         🗣️ {subtitle}
       </div>
     </div>
